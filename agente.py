@@ -1,16 +1,17 @@
 from langchain_huggingface import HuggingFacePipeline
 from transformers import pipeline
-from langchain.agents import AgentExecutor, create_react_agent, Tool
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain_core.tools import Tool
 from langchain_core.prompts import PromptTemplate
 import numexpr as ne
 
-print("Iniciando o carregamento do modelo local...")
+print("Iniciando o carregamento do modelo local (Qwen 0.5B)...")
 
-# Modelo ultra-leve escolhido para rodar no Codespace sem travar a memória
+# Modelo um pouco maior e mais inteligente, mas que ainda roda bem no Codespace
 pipe = pipeline(
     "text-generation", 
-    model="HuggingFaceTB/SmolLM-135M-Instruct", 
-    max_new_tokens=150,
+    model="Qwen/Qwen2.5-0.5B-Instruct", 
+    max_new_tokens=200,
     temperature=0.1
 )
 llm = HuggingFacePipeline(pipeline=pipe)
@@ -21,33 +22,37 @@ def calculadora(expressao: str) -> str:
         resultado = ne.evaluate(expressao).item()
         return str(resultado)
     except Exception as e:
-        return f"Erro: {e}"
+        return f"Erro ao calcular: {e}"
 
+# Nome e descrição da ferramenta em inglês para o modelo entender melhor
 ferramenta_calc = Tool(
-    name="Calculadora",
+    name="Calculator",
     func=calculadora,
-    description="Use apenas para cálculos matemáticos. A entrada deve ser a expressão exata (ex: 15 * 1.5)."
+    description="Useful for when you need to answer questions about math. Input should be ONLY the math expression (e.g. 15 * 1.5)."
 )
 
 ferramentas = [ferramenta_calc]
 
-template_react = """Responda a pergunta. Você tem as seguintes ferramentas:
+# PROMPT EM INGLÊS: Obrigatório para o parser nativo do LangChain funcionar
+template_react = """Answer the following questions as best you can. You have access to the following tools:
 
 {tools}
 
-Use o formato exato:
-Pergunta: a pergunta a responder
-Pensamento: o que fazer
-Ação: [{tool_names}]
-Entrada da Ação: os números para calcular
-Observação: o resultado
-Pensamento: já sei a resposta
-Resposta Final: a resposta final
+Use the following format strictly:
 
-Comece!
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
 
-Pergunta: {input}
-Pensamento:{agent_scratchpad}"""
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}"""
 
 prompt = PromptTemplate.from_template(template_react)
 
@@ -61,7 +66,8 @@ executor_agente = AgentExecutor(
 
 if __name__ == "__main__":
     print("\n--- Agente LangChain Pronto ---")
-    comando = input("Digite seu comando (Ex: Calcule 15 * 1.5): ")
+    # Sugestão: Faça a pergunta em inglês para facilitar a vida do modelo pequeno
+    comando = input("Digite seu comando (Ex: Calculate 15 * 1.5): ")
     resposta = executor_agente.invoke({"input": comando})
     print("\n=== RESPOSTA FINAL ===")
     print(resposta['output'])
