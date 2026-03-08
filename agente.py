@@ -6,34 +6,38 @@ from langchain_core.prompts import PromptTemplate
 import numexpr as ne
 
 print("Iniciando o carregamento do modelo local (Qwen 0.5B)...")
+print("Isso pode levar um minuto na primeira vez.")
 
-# Modelo um pouco maior e mais inteligente, mas que ainda roda bem no Codespace
+# 1. Configuração super restrita para domar o modelo pequeno
 pipe = pipeline(
     "text-generation", 
     model="Qwen/Qwen2.5-0.5B-Instruct", 
-    max_new_tokens=200,
-    temperature=0.1
+    max_new_tokens=45,  # Reduzido drasticamente para forçá-lo a parar de escrever
+    max_length=None,    # Remove o aviso (warning) poluindo a tela
+    temperature=0.01,
+    return_full_text=False
 )
 llm = HuggingFacePipeline(pipeline=pipe)
 
+# 2. Calculadora blindada contra formatações ruins do modelo
 def calculadora(expressao: str) -> str:
     """Avalia uma expressão matemática exata."""
     try:
-        resultado = ne.evaluate(expressao).item()
+        # Limpa qualquer sujeira que o modelo tente enviar junto com os números
+        expressao_limpa = expressao.replace('"', '').replace('expressao =', '').replace('expressao=', '').strip()
+        resultado = ne.evaluate(expressao_limpa).item()
         return str(resultado)
     except Exception as e:
         return f"Erro ao calcular: {e}"
 
-# Nome e descrição da ferramenta em inglês para o modelo entender melhor
 ferramenta_calc = Tool(
     name="Calculator",
     func=calculadora,
-    description="Useful for when you need to answer questions about math. Input should be ONLY the math expression (e.g. 15 * 1.5)."
+    description="Useful for math. Input must be JUST the math expression, nothing else. Example: 450 + 150"
 )
 
 ferramentas = [ferramenta_calc]
 
-# PROMPT EM INGLÊS: Obrigatório para o parser nativo do LangChain funcionar
 template_react = """Answer the following questions as best you can. You have access to the following tools:
 
 {tools}
@@ -61,13 +65,25 @@ executor_agente = AgentExecutor(
     agent=agente, 
     tools=ferramentas, 
     verbose=True,
-    handle_parsing_errors=True
+    handle_parsing_errors=True,
+    max_iterations=3
 )
 
 if __name__ == "__main__":
     print("\n--- Agente LangChain Pronto ---")
-    # Sugestão: Faça a pergunta em inglês para facilitar a vida do modelo pequeno
-    comando = input("Digite seu comando (Ex: Calculate 15 * 1.5): ")
-    resposta = executor_agente.invoke({"input": comando})
-    print("\n=== RESPOSTA FINAL ===")
-    print(resposta['output'])
+    print("Digite 'sair' a qualquer momento para encerrar o programa.\n")
+    
+    while True:
+        comando = input("Você (Ex: Calculate 15 * 1.5): ")
+        
+        if comando.lower() in ['sair', 'exit', 'quit', 'parar']:
+            print("\nEncerrando o agente. Boa apresentação!")
+            break
+            
+        try:
+            resposta = executor_agente.invoke({"input": comando})
+            print("\n=== RESPOSTA FINAL ===")
+            print(resposta['output'])
+            print("-" * 40 + "\n")
+        except Exception as e:
+            print(f"\nOcorreu um erro: {e}\n")
