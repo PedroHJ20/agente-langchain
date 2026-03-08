@@ -4,31 +4,45 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.tools import Tool
 from langchain_core.prompts import PromptTemplate
 import numexpr as ne
+import re # Biblioteca de Expressões Regulares do Python
 
 print("Iniciando o carregamento do modelo local (Qwen 0.5B)...")
 print("Isso pode levar um minuto na primeira vez.")
 
-# 1. Configuração super restrita para domar o modelo pequeno
 pipe = pipeline(
     "text-generation", 
     model="Qwen/Qwen2.5-0.5B-Instruct", 
-    max_new_tokens=45,  # Reduzido drasticamente para forçá-lo a parar de escrever
-    max_length=None,    # Remove o aviso (warning) poluindo a tela
+    max_new_tokens=45,
+    max_length=None,
     temperature=0.01,
     return_full_text=False
 )
 llm = HuggingFacePipeline(pipeline=pipe)
 
-# 2. Calculadora blindada contra formatações ruins do modelo
 def calculadora(expressao: str) -> str:
-    """Avalia uma expressão matemática exata."""
+    """Avalia uma expressão matemática exata com blindagem contra alucinações da IA."""
     try:
-        # Limpa qualquer sujeira que o modelo tente enviar junto com os números
-        expressao_limpa = expressao.replace('"', '').replace('expressao =', '').replace('expressao=', '').strip()
-        resultado = ne.evaluate(expressao_limpa).item()
-        return str(resultado)
+        # 1. Corta qualquer texto que venha depois de uma quebra de linha ou palavra indesejada
+        exp_cortada = expressao.split("Observation")[0].split("Thought")[0].split("\n")[0]
+        
+        # 2. Regex: Mantém APENAS números (0-9) e operadores matemáticos (+, -, *, /, (, ), .)
+        # Remove letras, aspas, chaves e sujeiras como 'expressao ='
+        exp_limpa = re.sub(r'[^\d\+\-\*\/\(\)\.]', '', exp_cortada)
+        
+        if not exp_limpa:
+            return "Erro: Nenhuma conta matemática encontrada na entrada."
+            
+        # 3. Faz o cálculo com a expressão sanitizada
+        resultado = ne.evaluate(exp_limpa).item()
+        
+        # Limpa o visual de números terminados em .0 (ex: 100.0 vira 100)
+        if isinstance(resultado, float) and resultado.is_integer():
+            return str(int(resultado))
+            
+        return str(round(resultado, 2))
+        
     except Exception as e:
-        return f"Erro ao calcular: {e}"
+        return f"Erro ao calcular a expressão limpa '{exp_limpa}': {e}"
 
 ferramenta_calc = Tool(
     name="Calculator",
@@ -71,7 +85,7 @@ executor_agente = AgentExecutor(
 
 if __name__ == "__main__":
     print("\n--- Agente LangChain Pronto ---")
-    print("Digite 'sair' a qualquer momento para encerrar o programa.\n")
+    print("Digite 'sair' para encerrar o programa.\n")
     
     while True:
         comando = input("Você (Ex: Calculate 15 * 1.5): ")
